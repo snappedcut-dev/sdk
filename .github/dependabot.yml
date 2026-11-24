@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Grouped, because these packages have at most a couple of devDependencies and
+  # a PR per bump would be more noise than signal.
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      dev:
+        patterns: ['*']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
