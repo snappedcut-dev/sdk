@@ -1,0 +1,39 @@
+name: Release
+
+# Publishing happens here and nowhere else. The OIDC token below is what lets
+# npm attach a provenance statement — a signed, public link from the tarball
+# back to this commit and this workflow run. A publish from a laptop cannot
+# produce one, which is the point.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck --if-present
+      - run: npm test
+      # The tag is the source of truth: v1.2.3 must be version 1.2.3, or the
+      # tarball on npm and the tag in git disagree forever.
+      - name: The tag must match the version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          [ "$tag" = "$pkg" ] || { echo "tag $tag != package.json $pkg"; exit 1; }
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

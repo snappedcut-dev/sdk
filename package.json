@@ -1,0 +1,26 @@
+{
+  "name": "@snappedcut/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Snapped Cut cloud render API (zero runtime dependencies).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "sideEffects": false,
+  "engines": { "node": ">=20" },
+  "repository": { "type": "git", "url": "git+https://github.com/snappedcut-dev/sdk.git" },
+  "homepage": "https://snappedcut.com/docs",
+  "bugs": "https://github.com/snappedcut-dev/sdk/issues",
+  "keywords": ["snappedcut", "video", "render", "ffmpeg", "webcodecs", "sdk"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/"
+  },
+  "devDependencies": { "typescript": "5.9.3" },
+  "publishConfig": { "access": "public", "provenance": true }
+}
