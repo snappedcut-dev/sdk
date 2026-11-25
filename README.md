@@ -31,7 +31,7 @@ an SDK cannot make Node run WebCodecs.
 
 What this covers is the one thing that *does* happen on our machines: a **cloud
 render**, where you hand over a project bundle and get a finished file back.
-That is five endpoints, and a client for it should be readable in one sitting.
+A client for it should be readable in one sitting.
 
 For driving the real editor, see [`@snappedcut/mcp`](https://github.com/snappedcut-dev/mcp).
 For putting the editor in your own page, [`@snappedcut/embed`](https://github.com/snappedcut-dev/embed).
@@ -42,10 +42,48 @@ For putting the editor in your own page, [`@snappedcut/embed`](https://github.co
 | --- | --- |
 | `new SnappedCut({ key, base?, fetch? })` | `base` defaults to `https://snappedcut.com`. Pass your own `fetch` to mock or instrument. |
 | `account()` | Who the key belongs to, credits left, and the current price list. |
-| `render(bundle, { kind? })` | Queues a render. `kind` is `'cloud-render'` or `'cloud-render-4k'`. |
+| `render(bundle, { kind?, idempotencyKey?, priority? })` | Queues a render. `kind` is `'cloud-render'` or `'cloud-render-4k'`; `priority` is `'interactive'` or `'background'`. |
 | `job(id)` / `jobs()` | One job, or every job on the account. |
-| `output(id)` | The rendered bytes. Throws unless the job is `done`. |
-| `wait(id, { timeoutMs?, onState? })` | Polls to completion, then resolves with the bytes. |
+| `output(id, index?)` | The rendered bytes. Throws unless the job is `done`. |
+| `wait(id, { timeoutMs?, onState?, index? })` | Polls to completion, then resolves with the bytes (of output `index`). |
+| `create(request, { idempotencyKey? })` | A job as JSON: a `design`, an uploaded `bundle`, or a `tool` over uploaded `inputs`. |
+| `batch(jobs, defaults?)` | Up to 100 jobs; each is answered on its own. |
+| `compileDesign(design, vars?)` / `renderDesign(design, request?)` | Compile a design to a project, or render it. |
+| `operations()` | Every operation, its parameters, and the presets. |
+| `upload(data, { name?, contentType })` / `asset(id)` / `deleteAsset(id)` | Upload media once, use it by id. |
+| `usage(query?)` / `deleteEndUser(endUserId)` | Usage grouped by `day`, `week`, `month`, `endUser`, `key` or `operation`; erase one end user. |
+| `embedToken({ pk, endUserId, ... })` | Mint an embed session token. Server side only. |
+| `destinations.list/create/update/delete/test/presign` | Saved S3-compatible buckets to deliver outputs into. |
+| `webhooks.list/create/update/delete/rotate/deliveries/test` | Webhook endpoints. The secret comes back once, from `create` and `rotate`. |
+| `SnappedCut.verifyWebhook(secret, rawBody, header)` | Checks an `X-Snappedcut-Signature` header. |
+
+### Designs, uploads and several outputs
+
+```ts
+const clip = await snapcut.upload(await readFile('clip.webm'), { name: 'clip.webm', contentType: 'video/webm' });
+
+const { job } = await snapcut.renderDesign(
+  { clips: [{ type: 'video', asset: clip.id }, { type: 'text', text: 'Launch day', start: 0, duration: 3 }] },
+  { outputs: [{ preset: 'vertical' }, { preset: 'square', format: 'webm' }] },
+  // A retry with the same key returns the first job instead of charging twice.
+  { idempotencyKey: 'launch-2026-11-24' },
+);
+
+const vertical = await snapcut.wait(job.id, { index: 0 });
+const square = await snapcut.output(job.id, 1);
+```
+
+Presets: `source`, `vertical`, `square`, `portrait`, `landscape`, `hd720`, `uhd2160`.
+
+### Webhooks
+
+```ts
+const ok = await SnappedCut.verifyWebhook(process.env.SNAPCUT_WEBHOOK_SECRET, rawBody, request.headers.get('x-snappedcut-signature'));
+if (!ok) return new Response('bad signature', { status: 400 });
+```
+
+Pass the **raw** body, before any JSON parsing. A signature older than five
+minutes is refused, so a captured delivery cannot be replayed.
 
 ### Large bundles resume themselves
 

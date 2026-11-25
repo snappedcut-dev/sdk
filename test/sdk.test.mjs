@@ -7,7 +7,7 @@ const stub = (replies) => {
   const calls = [];
   const queue = [...replies];
   const fetch = async (url, init = {}) => {
-    calls.push({ url: String(url), method: init.method ?? 'GET', body: init.body });
+    calls.push({ url: String(url), method: init.method ?? 'GET', headers: new Headers(init.headers), body: init.body });
     const next = queue.shift();
     if (!next) throw new Error(`unexpected request: ${url}`);
     return new Response(next.body ?? '{}', {
@@ -66,4 +66,48 @@ test('a failed job throws rather than returning an empty file', async () => {
   const { fetch } = stub([{ body: failed }]);
   const sdk = new SnappedCut({ key: 'sk_snapcut_test', fetch });
   await assert.rejects(() => sdk.wait('j1'), /decode failed/);
+});
+
+test('verifyWebhook accepts our signature inside five minutes, and nothing else', async () => {
+  const secret = 'whsec_snapcut_test';
+  const body = '{"id":"evt_1","type":"job.succeeded"}';
+  const header = 't=1760000000000,v1=54c2adf2a351242de19b156794d65c56bebf9fc56cadac990c56b979a7a61ab2';
+  assert.equal(await SnappedCut.verifyWebhook(secret, body, header, 1760000001000), true);
+  assert.equal(await SnappedCut.verifyWebhook(secret, body, header, 1760000400000), false);
+  assert.equal(await SnappedCut.verifyWebhook(secret, `${body} `, header, 1760000001000), false);
+  assert.equal(await SnappedCut.verifyWebhook('whsec_other', body, header, 1760000001000), false);
+  assert.equal(await SnappedCut.verifyWebhook(secret, body, 't=1760000000000,v1=zz', 1760000001000), false);
+});
+
+test('create sends the Idempotency-Key as a header and the job as JSON', async () => {
+  const { fetch, calls } = stub([{ status: 202, body: '{"job":{"id":"job_1"},"charged":2,"price":2,"credits":8}' }]);
+  const sdk = new SnappedCut({ key: 'sk_snapcut_x', base: 'https://example.test', fetch });
+  const made = await sdk.create({ design: { clips: [{ type: 'text', text: 'hi' }] }, outputs: [{ preset: 'vertical' }] }, { idempotencyKey: 'k-1' });
+  assert.equal(made.job.id, 'job_1');
+  assert.equal(calls[0].url, 'https://example.test/api/jobs');
+  assert.equal(calls[0].headers.get('idempotency-key'), 'k-1');
+  assert.equal(calls[0].headers.get('authorization'), 'Bearer sk_snapcut_x');
+  assert.deepEqual(JSON.parse(String(calls[0].body)).outputs, [{ preset: 'vertical' }]);
+});
+
+test('upload sends chunks at the right offsets without the key, then confirms', async () => {
+  const asset = '{"asset":{"id":"as_1","name":"clip.webm","contentType":"video/webm","bytes":5,"confirmed":true}}';
+  const { fetch, calls } = stub([
+    { body: '{"assetId":"as_1","upload":{"url":"https://up.test/put?token=t","maxChunkBytes":3}}' },
+    { body: '{}' },
+    { body: '{}' },
+    { body: asset },
+  ]);
+  const sdk = new SnappedCut({ key: 'sk_snapcut_x', base: 'https://example.test', fetch });
+  const made = await sdk.upload(new Uint8Array(5), { name: 'clip.webm', contentType: 'video/webm' });
+  assert.equal(made.id, 'as_1');
+  assert.deepEqual(calls.map((c) => `${c.method} ${c.url}`), [
+    'POST https://example.test/api/uploads',
+    'PUT https://up.test/put?token=t&offset=0',
+    'PUT https://up.test/put?token=t&offset=3',
+    'POST https://example.test/api/uploads/as_1/confirm',
+  ]);
+  // The upload URL carries its own permission; the API key must not travel to it.
+  assert.equal(calls[1].headers.get('authorization'), null);
+  assert.equal(calls[2].headers.get('authorization'), null);
 });
